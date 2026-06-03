@@ -60,14 +60,15 @@ with st.sidebar:
     st.image("https://groq.com/wp-content/uploads/2023/03/Groq_logo.png", width=180)
     st.markdown("## ⚙️ Configuration")
 
-    # Model selection – simple, unique names (no "Groq" in labels)
+    # Updated Model selection with currently supported models
     available_models = {
-        "llama3-70b-8192": "Llama 3 70B",
-        "llama3-8b-8192": "Llama 3 8B",
-        "mixtral-8x7b-32768": "Mixtral 8x7B",
-        "gemma2-9b-it": "Gemma 2 9B",
         "llama-3.3-70b-versatile": "Llama 3.3 70B",
         "llama-3.1-8b-instant": "Llama 3.1 8B",
+        "llama-4-scout-17b-16e-instruct": "Llama 4 Scout 17B",
+        "llama-4-maverick-17b-128e-instruct": "Llama 4 Maverick 17B",
+        "deepseek-r1-distill-llama-70b": "DeepSeek R1 Distill 70B",
+        "gemma2-9b-it": "Gemma 2 9B",
+        "qwen-qwq-32b": "Qwen QWQ 32B",
     }
     selected_model = st.selectbox(
         "🤖 Model",
