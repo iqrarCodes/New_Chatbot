@@ -45,7 +45,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ------------------- SECRET KEY HANDLING (NO INPUT WIDGET) -------------------
+# ------------------- SECRET KEY HANDLING -------------------
 def get_groq_client():
     api_key = st.secrets.get("GROQ_API_KEY", None)
     if not api_key:
@@ -55,24 +55,42 @@ def get_groq_client():
 
 client = get_groq_client()
 
+# ------------------- FETCH ACTIVE MODELS FROM GROQ API -------------------
+@st.cache_data(ttl=3600)
+def get_available_models():
+    """Fetch currently supported chat models from Groq API."""
+    try:
+        models = client.models.list()
+        chat_models = {}
+        for model in models.data:
+            # Filter out non‑chat models
+            if "embed" not in model.id and "whisper" not in model.id:
+                # Friendly name
+                display_name = model.id.replace("-", " ").title()
+                chat_models[model.id] = display_name
+        return chat_models
+    except Exception as e:
+        st.error(f"Could not fetch models: {str(e)}")
+        # Fallback models (known working)
+        return {
+            "llama-3.3-70b-versatile": "Llama 3.3 70B",
+            "llama-3.1-8b-instant": "Llama 3.1 8B",
+            "gemma2-9b-it": "Gemma 2 9B",
+        }
+
 # ------------------- SIDEBAR CONFIGURATION -------------------
 with st.sidebar:
     st.image("https://groq.com/wp-content/uploads/2023/03/Groq_logo.png", width=180)
     st.markdown("## ⚙️ Configuration")
 
-    # Updated Model selection with currently supported models
-    available_models = {
-        "llama-3.3-70b-versatile": "Llama 3.3 70B",
-        "llama-3.1-8b-instant": "Llama 3.1 8B",
-        "llama-4-scout-17b-16e-instruct": "Llama 4 Scout 17B",
-        "llama-4-maverick-17b-128e-instruct": "Llama 4 Maverick 17B",
-        "deepseek-r1-distill-llama-70b": "DeepSeek R1 Distill 70B",
-        "gemma2-9b-it": "Gemma 2 9B",
-        "qwen-qwq-32b": "Qwen QWQ 32B",
-    }
+    # Get live models
+    available_models = get_available_models()
+    model_keys = list(available_models.keys())
+    default_model = model_keys[0] if model_keys else "llama-3.3-70b-versatile"
+
     selected_model = st.selectbox(
         "🤖 Model",
-        options=list(available_models.keys()),
+        options=model_keys,
         format_func=lambda x: available_models[x],
         index=0,
     )
@@ -82,7 +100,6 @@ with st.sidebar:
         "🧠 System prompt",
         value="You are a helpful, knowledgeable AI assistant.",
         height=100,
-        help="Instructions that guide the assistant's behavior.",
     )
 
     # Clear chat button
@@ -109,16 +126,28 @@ with st.sidebar:
             st.info("No messages to export.")
 
     st.markdown("---")
-    st.caption("🔒 API key is loaded from secrets (set once).\n⚡ Powered by Groq LPU.")
+    st.caption("🔒 API key from secrets.\n⚡ Powered by Groq LPU.")
 
 # ------------------- INITIALIZE SESSION STATE -------------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+# Validate and migrate compare_configs to use valid model IDs
 if "compare_configs" not in st.session_state:
+    # Start with two valid default models
     st.session_state.compare_configs = [
-        {"model": "llama3-70b-8192", "name": "Llama 3 70B"},
-        {"model": "mixtral-8x7b-32768", "name": "Mixtral 8x7B"},
+        {"model": model_keys[0] if model_keys else "llama-3.3-70b-versatile", "name": available_models.get(model_keys[0], "Llama 3.3 70B")},
+        {"model": model_keys[1] if len(model_keys) > 1 else model_keys[0], "name": available_models.get(model_keys[1], "Llama 3.1 8B")},
     ]
+else:
+    # Clean up any old model IDs that are no longer available
+    valid_keys = set(model_keys)
+    for cfg in st.session_state.compare_configs:
+        if cfg["model"] not in valid_keys:
+            cfg["model"] = default_model
+            cfg["name"] = available_models.get(default_model, "Unknown")
+        else:
+            cfg["name"] = available_models[cfg["model"]]
 
 # ------------------- MAIN TABS -------------------
 tab_chat, tab_compare, tab_info = st.tabs(["💬 Chat", "⚖️ Compare Models", "ℹ️ Info"])
@@ -136,7 +165,6 @@ with tab_chat:
                     unsafe_allow_html=True,
                 )
             else:
-                # Display simple model name (no "Groq" prefix)
                 display_model = msg.get("model", available_models[selected_model])
                 st.markdown(
                     f'<div class="message-row"><div class="assistant-bubble">'
@@ -147,7 +175,6 @@ with tab_chat:
 
     user_input = st.chat_input("Type your message here...")
     if user_input:
-        # Add user message
         st.session_state.messages.append(
             {"role": "user", "content": user_input, "timestamp": time.time()}
         )
@@ -178,7 +205,7 @@ with tab_chat:
                     {
                         "role": "assistant",
                         "content": assistant_reply,
-                        "model": available_models[selected_model],  # simple name
+                        "model": available_models[selected_model],
                         "timestamp": time.time(),
                     }
                 )
@@ -190,7 +217,7 @@ with tab_chat:
                         unsafe_allow_html=True,
                     )
             except Exception as e:
-                st.error(f"Groq API error: {str(e)}")
+                st.error(f"API error: {str(e)}")
 
 # ======================= COMPARE TAB =======================
 with tab_compare:
@@ -200,7 +227,7 @@ with tab_compare:
     def add_compare_row():
         if len(st.session_state.compare_configs) < 4:
             st.session_state.compare_configs.append(
-                {"model": "llama3-70b-8192", "name": "Llama 3 70B"}
+                {"model": default_model, "name": available_models[default_model]}
             )
         else:
             st.warning("Maximum 4 models for comparison.")
@@ -216,15 +243,18 @@ with tab_compare:
     with cols[1]:
         st.button("➕ Add model", on_click=add_compare_row)
 
+    # Display each compare row with safe index handling
     for i, cfg in enumerate(st.session_state.compare_configs):
         col1, col2, col3 = st.columns([3, 2, 0.5])
         with col1:
+            # Find the current index; if not found, default to 0
+            current_idx = model_keys.index(cfg["model"]) if cfg["model"] in model_keys else 0
             model_key = st.selectbox(
                 f"Model {i+1}",
-                options=list(available_models.keys()),
+                options=model_keys,
                 format_func=lambda x: available_models[x],
                 key=f"cmp_model_{i}",
-                index=list(available_models.keys()).index(cfg["model"]),
+                index=current_idx,
             )
             cfg["model"] = model_key
             cfg["name"] = available_models[model_key]
